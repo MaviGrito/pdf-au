@@ -3,11 +3,13 @@ import { createRequire } from 'module';
 import { randomUUID } from 'crypto';
 import type { MenuContent, MenuSection, MenuItem } from '../../src/types/index.ts';
 
-// pdf-parse no tiene un export default ESM compatible con el bundler de Netlify.
-// Usamos createRequire para forzar la carga del módulo CommonJS.
+// pdf-parse v2 usa una clase PDFParse en lugar de una función default.
+// Usamos createRequire para cargar el módulo CJS de forma compatible con Netlify.
 const require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfParse = require('pdf-parse') as (buffer: Buffer) => Promise<{ text: string }>;
+const { PDFParse } = require('pdf-parse') as {
+  PDFParse: new (opts: { data: Buffer }) => { getText: () => Promise<{ text: string }> };
+};
 
 // Patrones para detectar notas al pie
 const FOOTER_NOTE_PATTERN = /^[\*†‡§¶#]/;
@@ -160,8 +162,8 @@ export const handler: Handler = async (event) => {
     // Decodificar base64 a Buffer
     const pdfBuffer = Buffer.from(pdfBase64, 'base64');
 
-    // Extraer texto con pdf-parse
-    const parsed = await pdfParse(pdfBuffer);
+    // Usar la clase PDFParse de pdf-parse v2 (API: new PDFParse({ data }).getText())
+    const parsed = await new PDFParse({ data: pdfBuffer }).getText();
 
     // Construir MenuContent a partir del texto extraído
     const content: MenuContent = parseMenuText(parsed.text);
