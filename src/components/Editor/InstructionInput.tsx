@@ -1,6 +1,7 @@
 import { LoadingSpinner } from '../shared/LoadingSpinner';
 
 interface InstructionInputProps {
+  id?: string;
   instruction: string;
   onInstructionChange: (value: string) => void;
   onApply: () => void;
@@ -12,6 +13,7 @@ interface InstructionInputProps {
  * El botón queda deshabilitado mientras se procesa o si la instrucción está vacía.
  */
 export default function InstructionInput({
+  id,
   instruction,
   onInstructionChange,
   onApply,
@@ -22,6 +24,7 @@ export default function InstructionInput({
   return (
     <div className="flex flex-col gap-3">
       <textarea
+        id={id}
         value={instruction}
         onChange={(e) => onInstructionChange(e.target.value)}
         disabled={isProcessing}

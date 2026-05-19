@@ -43,8 +43,9 @@ export default function EditControls({
 
       {/* Selector de modelo */}
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-gray-700">Modelo de IA</label>
+        <label htmlFor="model-selector" className="text-sm font-medium text-gray-700">Modelo de IA</label>
         <ModelSelector
+          id="model-selector"
           selectedModel={selectedModel}
           onModelChange={setSelectedModel}
           disabled={isProcessing}
@@ -53,8 +54,9 @@ export default function EditControls({
 
       {/* Instrucción y botón de aplicar */}
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-gray-700">Instrucción</label>
+        <label htmlFor="instruction-input" className="text-sm font-medium text-gray-700">Instrucción</label>
         <InstructionInput
+          id="instruction-input"
           instruction={instruction}
           onInstructionChange={setInstruction}
           onApply={handleApply}

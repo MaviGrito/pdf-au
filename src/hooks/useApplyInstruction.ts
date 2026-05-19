@@ -63,7 +63,10 @@ function useApplyInstruction(
 
         if (!response.ok) {
           const errData = data as ErrorResponse;
-          setError(errData.error ?? 'Error desconocido al aplicar la instrucción.');
+          const message = errData.code === 'MISSING_API_KEY'
+            ? `API key no configurada en el servidor. Verifica las variables de entorno en Netlify.`
+            : errData.error ?? 'Error desconocido al aplicar la instrucción.';
+          setError(message);
           return;
         }
 

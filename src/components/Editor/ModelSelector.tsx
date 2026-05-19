@@ -1,6 +1,7 @@
 import type { AIModel } from '../../types';
 
 interface ModelSelectorProps {
+  id?: string;
   selectedModel: AIModel;
   onModelChange: (model: AIModel) => void;
   disabled?: boolean;
@@ -15,12 +16,14 @@ const MODEL_OPTIONS: { value: AIModel; label: string }[] = [
  * Selector del modelo de IA a utilizar para aplicar instrucciones.
  */
 export default function ModelSelector({
+  id,
   selectedModel,
   onModelChange,
   disabled = false,
 }: ModelSelectorProps) {
   return (
     <select
+      id={id}
       value={selectedModel}
       onChange={(e) => onModelChange(e.target.value as AIModel)}
       disabled={disabled}
