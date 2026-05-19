@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Document, Page } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -31,8 +31,22 @@ export default function PDFPreview({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
+  // Resetear estado al cambiar de PDF/versión
+  useEffect(() => {
+    setNumPages(0);
+    setLoadError(null);
+    setIsLoading(true);
+  }, [pdfBase64]);
+
   // Convertir base64 a Uint8Array para react-pdf
-  const pdfFile = { data: pdfBase64 };
+  const pdfFile = useMemo(() => {
+    const binary = atob(pdfBase64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return { data: bytes };
+  }, [pdfBase64]);
 
   const handleLoadSuccess = ({ numPages }: { numPages: number }) => {
     setNumPages(numPages);

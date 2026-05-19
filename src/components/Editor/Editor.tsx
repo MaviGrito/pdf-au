@@ -4,33 +4,8 @@ import { useAppContext } from '../../context/AppContext';
 import PDFPreview from './PDFPreview';
 import EditControls from './EditControls';
 import { ErrorMessage } from '../shared/ErrorMessage';
-import type { AIModel } from '../../types';
-
-// --------------- Stubs temporales de hooks (Tarea 7) ---------------
-
-/**
- * TODO: Implementar en Tarea 7.1
- * Enviará POST /api/extract-pdf y despachará SET_EXTRACTED_CONTENT.
- */
-function useExtractPDF(_pdfId: string, _pdfBase64: string): { isLoading: boolean; error: string | null } {
-  return { isLoading: false, error: null };
-}
-
-/**
- * TODO: Implementar en Tarea 7.2
- * Enviará POST /api/apply-instruction y despachará ADD_VERSION.
- */
-function useApplyInstruction(_pdfId: string): {
-  isProcessing: boolean;
-  error: string | null;
-  apply: (instruction: string, model: AIModel) => Promise<void>;
-} {
-  return {
-    isProcessing: false,
-    error: null,
-    apply: async () => {},
-  };
-}
+import useExtractPDF from '../../hooks/useExtractPDF';
+import useApplyInstruction from '../../hooks/useApplyInstruction';
 
 // --------------- Componente Editor ---------------
 
