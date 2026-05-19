@@ -1,7 +1,13 @@
 import type { Handler } from '@netlify/functions';
-import pdfParse from 'pdf-parse';
+import { createRequire } from 'module';
 import { randomUUID } from 'crypto';
 import type { MenuContent, MenuSection, MenuItem } from '../../src/types/index.ts';
+
+// pdf-parse no tiene un export default ESM compatible con el bundler de Netlify.
+// Usamos createRequire para forzar la carga del módulo CommonJS.
+const require = createRequire(import.meta.url);
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdfParse = require('pdf-parse') as (buffer: Buffer) => Promise<{ text: string }>;
 
 // Patrones para detectar notas al pie
 const FOOTER_NOTE_PATTERN = /^[\*†‡§¶#]/;
