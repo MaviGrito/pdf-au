@@ -15,7 +15,7 @@
 
 import { PDFDocument as PdfLibDocument, StandardFonts } from 'pdf-lib';
 import { PDFParse } from 'pdf-parse';
-import type { MenuContent } from '../../src/types/index.ts';
+import type { MenuContent } from '../types/index.ts';
 
 /**
  * Genera un PDF a partir de un MenuContent usando pdf-lib.
