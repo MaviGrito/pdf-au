@@ -16,22 +16,52 @@ interface CallResult {
 // --------------- Generador de PDF con pdf-lib ---------------
 
 /**
- * Genera un PDF simple a partir de un MenuContent y lo devuelve como base64.
+ * Divide un texto en líneas que caben dentro de maxWidth usando la fuente y tamaño dados.
+ * pdf-lib no hace word-wrap automático, así que lo implementamos manualmente.
+ */
+function wrapText(
+  text: string,
+  font: { widthOfTextAtSize: (t: string, s: number) => number },
+  fontSize: number,
+  maxWidth: number,
+): string[] {
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let currentLine = '';
+
+  for (const word of words) {
+    const testLine = currentLine ? `${currentLine} ${word}` : word;
+    const testWidth = font.widthOfTextAtSize(testLine, fontSize);
+    if (testWidth > maxWidth && currentLine) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = testLine;
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+  return lines;
+}
+
+/**
+ * Genera un PDF a partir de un MenuContent con word-wrap y layout limpio.
  */
 async function generatePDF(content: MenuContent): Promise<string> {
   const pdfDoc = await LibPDFDocument.create();
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-  const pageWidth = 595;   // A4 ancho en puntos
-  const pageHeight = 842;  // A4 alto en puntos
+  const pageWidth = 595;
+  const pageHeight = 842;
   const margin = 50;
-  const lineHeight = 16;
-  const sectionGap = 10;
+  const contentWidth = pageWidth - margin * 2;
+  const lineHeightNormal = 15;
+  const lineHeightSmall = 13;
 
   let page = pdfDoc.addPage([pageWidth, pageHeight]);
   let y = pageHeight - margin;
 
+  // Añade una nueva página si no hay espacio suficiente
   const ensureSpace = (needed: number) => {
     if (y - needed < margin) {
       page = pdfDoc.addPage([pageWidth, pageHeight]);
@@ -39,7 +69,25 @@ async function generatePDF(content: MenuContent): Promise<string> {
     }
   };
 
-  // Nombre del restaurante
+  // Dibuja texto con word-wrap y devuelve el nuevo y
+  const drawWrapped = (
+    text: string,
+    x: number,
+    font: typeof fontBold,
+    fontSize: number,
+    color: ReturnType<typeof rgb>,
+    lineHeight: number,
+    maxWidth: number,
+  ) => {
+    const lines = wrapText(text, font, fontSize, maxWidth);
+    for (const line of lines) {
+      ensureSpace(lineHeight);
+      page.drawText(line, { x, y, size: fontSize, font, color });
+      y -= lineHeight;
+    }
+  };
+
+  // ── Nombre del restaurante ──
   ensureSpace(30);
   page.drawText(content.restaurantName, {
     x: margin,
@@ -48,76 +96,99 @@ async function generatePDF(content: MenuContent): Promise<string> {
     font: fontBold,
     color: rgb(0, 0, 0),
   });
-  y -= 30;
+  y -= 32;
 
-  // Secciones y platos
+  // ── Secciones ──
   for (const section of content.sections) {
-    ensureSpace(lineHeight * 2 + sectionGap);
-    y -= sectionGap;
+    ensureSpace(lineHeightNormal * 2 + 12);
+    y -= 8;
 
-    // Título de sección
-    page.drawText(section.title, {
+    // Línea separadora
+    page.drawLine({
+      start: { x: margin, y: y + 4 },
+      end: { x: pageWidth - margin, y: y + 4 },
+      thickness: 0.5,
+      color: rgb(0.7, 0.7, 0.7),
+    });
+    y -= 4;
+
+    // Título de sección en mayúsculas
+    page.drawText(section.title.toUpperCase(), {
       x: margin,
       y,
-      size: 14,
+      size: 11,
       font: fontBold,
-      color: rgb(0.2, 0.2, 0.2),
+      color: rgb(0.15, 0.15, 0.15),
     });
-    y -= lineHeight + 4;
+    y -= lineHeightNormal + 6;
 
     // Platos
     for (const item of section.items) {
-      ensureSpace(lineHeight * 2);
+      ensureSpace(lineHeightNormal + lineHeightSmall + 4);
 
-      // Nombre del plato (y precio si existe)
-      const nameText = item.price ? `${item.name}  ${item.price}` : item.name;
-      page.drawText(nameText, {
-        x: margin + 10,
-        y,
-        size: 11,
-        font: fontBold,
-        color: rgb(0, 0, 0),
-      });
-      y -= lineHeight;
+      // Nombre del plato a la izquierda, precio a la derecha
+      if (item.price) {
+        const priceWidth = fontBold.widthOfTextAtSize(item.price, 11);
+        const nameMaxWidth = contentWidth - priceWidth - 10;
+        const nameLines = wrapText(item.name, fontBold, 11, nameMaxWidth);
 
-      // Descripción opcional
-      if (item.description) {
-        ensureSpace(lineHeight);
-        // Truncar descripción larga para que quepa en la página
-        const maxChars = 90;
-        const desc = item.description.length > maxChars
-          ? item.description.slice(0, maxChars) + '…'
-          : item.description;
-        page.drawText(desc, {
-          x: margin + 10,
-          y,
-          size: 9,
-          font: fontRegular,
-          color: rgb(0.4, 0.4, 0.4),
-        });
-        y -= lineHeight;
+        for (let i = 0; i < nameLines.length; i++) {
+          ensureSpace(lineHeightNormal);
+          page.drawText(nameLines[i], {
+            x: margin + 8,
+            y,
+            size: 11,
+            font: fontBold,
+            color: rgb(0, 0, 0),
+          });
+          // Precio solo en la primera línea
+          if (i === 0) {
+            page.drawText(item.price, {
+              x: pageWidth - margin - priceWidth,
+              y,
+              size: 11,
+              font: fontBold,
+              color: rgb(0, 0, 0),
+            });
+          }
+          y -= lineHeightNormal;
+        }
+      } else {
+        drawWrapped(item.name, margin + 8, fontBold, 11, rgb(0, 0, 0), lineHeightNormal, contentWidth - 8);
       }
+
+      // Descripción con word-wrap
+      if (item.description) {
+        drawWrapped(
+          item.description,
+          margin + 8,
+          fontRegular,
+          9,
+          rgb(0.4, 0.4, 0.4),
+          lineHeightSmall,
+          contentWidth - 8,
+        );
+      }
+      y -= 4; // espacio entre platos
     }
   }
 
-  // Notas al pie
+  // ── Notas al pie ──
   if (content.footerNotes && content.footerNotes.length > 0) {
-    y -= sectionGap;
+    y -= 12;
+    page.drawLine({
+      start: { x: margin, y: y + 4 },
+      end: { x: pageWidth - margin, y: y + 4 },
+      thickness: 0.5,
+      color: rgb(0.7, 0.7, 0.7),
+    });
+    y -= 8;
     for (const note of content.footerNotes) {
-      ensureSpace(lineHeight);
-      page.drawText(`* ${note}`, {
-        x: margin,
-        y,
-        size: 9,
-        font: fontRegular,
-        color: rgb(0.5, 0.5, 0.5),
-      });
-      y -= lineHeight;
+      drawWrapped(`• ${note}`, margin, fontRegular, 9, rgb(0.5, 0.5, 0.5), lineHeightSmall, contentWidth);
     }
   }
 
   const pdfBytes = await pdfDoc.save();
-  // Convertir Uint8Array a base64 compatible con Node.js
   return Buffer.from(pdfBytes).toString('base64');
 }
 
