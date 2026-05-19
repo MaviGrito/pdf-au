@@ -1,26 +1,18 @@
 import type { Handler } from '@netlify/functions';
-import { createRequire } from 'module';
+import { extractText } from 'unpdf';
 import { randomUUID } from 'crypto';
 import type { MenuContent, MenuSection, MenuItem } from '../../src/types/index.ts';
 
-// pdf-parse v2 usa una clase PDFParse en lugar de una función default.
-// Usamos createRequire para cargar el módulo CJS de forma compatible con Netlify.
-const require = createRequire(import.meta.url);
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { PDFParse } = require('pdf-parse') as {
-  PDFParse: new (opts: { data: Buffer }) => { getText: () => Promise<{ text: string }> };
-};
+// Patrón para detectar notas al pie
+const FOOTER_NOTE_PATTERN = /^[*†‡§¶#]/;
 
-// Patrones para detectar notas al pie
-const FOOTER_NOTE_PATTERN = /^[\*†‡§¶#]/;
+// Patrón para detectar títulos de sección:
+// - Todo en mayúsculas (mínimo 3 caracteres, sin números)
+// - O termina con ":" con pocas palabras
+const SECTION_TITLE_PATTERN = /^[A-ZÁÉÍÓÚÜÑ\s\(\)\/]{3,}$|^[A-ZÁÉÍÓÚÜÑ][^.!?]{2,40}:$/;
 
-// Patrón para detectar líneas que parecen títulos de sección:
-// - Todo en mayúsculas (mínimo 3 caracteres)
-// - O termina con ":" y tiene pocas palabras
-const SECTION_TITLE_PATTERN = /^[A-ZÁÉÍÓÚÜÑ\s]{3,}$|^[A-ZÁÉÍÓÚÜÑ][^.!?]{2,30}:$/;
-
-// Patrón para detectar precios (ej. "12.50€", "€12", "12,50 €", "$12.50")
-const PRICE_PATTERN = /(?:€|\$|£)\s*\d+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?\s*(?:€|\$|£)/;
+// Patrón para detectar precios (ej. "12.50", "$12.50", "12,50 €", "MP")
+const PRICE_PATTERN = /(?:€|\$|£)\s*\d+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?\s*(?:€|\$|£)|\bMP\b|\b\d{1,3}(?:\.\d{2})?\b(?:\s*-\s*\d{1,3}(?:\.\d{2})?)?$/;
 
 /**
  * Parsea el texto extraído del PDF y construye un MenuContent.
@@ -159,14 +151,16 @@ export const handler: Handler = async (event) => {
   }
 
   try {
-    // Decodificar base64 a Buffer
+    // Decodificar base64 a Uint8Array para unpdf
     const pdfBuffer = Buffer.from(pdfBase64, 'base64');
+    const uint8Array = new Uint8Array(pdfBuffer);
 
-    // Usar la clase PDFParse de pdf-parse v2 (API: new PDFParse({ data }).getText())
-    const parsed = await new PDFParse({ data: pdfBuffer }).getText();
+    // Extraer texto con unpdf (compatible con entornos serverless/edge)
+    const { text: pages } = await extractText(uint8Array, { mergePages: true });
+    const text = Array.isArray(pages) ? pages.join('\n') : String(pages);
 
     // Construir MenuContent a partir del texto extraído
-    const content: MenuContent = parseMenuText(parsed.text);
+    const content: MenuContent = parseMenuText(text);
 
     return {
       statusCode: 200,
