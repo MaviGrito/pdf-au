@@ -1,5 +1,4 @@
 import type { Handler } from '@netlify/functions';
-import { PDFDocument as LibPDFDocument } from 'pdf-lib';
 import type {
   MenuContent,
   AIModel,
@@ -18,20 +17,39 @@ interface CallResult {
 
 /**
  * Llama a OpenAI GPT-4o para aplicar la instrucción al menú.
+ * Estrategia optimizada: envía solo un resumen compacto del menú (nombres y precios)
+ * para reducir el tamaño del prompt y evitar timeouts.
  */
 async function callOpenAI(
   content: MenuContent,
   instruction: string,
   apiKey: string,
 ): Promise<CallResult> {
+  // Construir resumen compacto: solo nombres y precios, sin descripciones largas
+  const compactMenu = {
+    restaurantName: content.restaurantName,
+    sections: content.sections.map(s => ({
+      id: s.id,
+      title: s.title,
+      items: s.items.map(i => ({
+        id: i.id,
+        name: i.name,
+        price: i.price,
+        // Omitir description para reducir tokens
+      })),
+    })),
+  };
+
   const systemPrompt =
     'Eres un asistente experto en menús de restaurante. ' +
-    'Modifica el menú según la instrucción del usuario y devuelve el resultado en el mismo formato JSON.';
+    'Modifica el menú según la instrucción del usuario. ' +
+    'IMPORTANTE: Devuelve el JSON completo del menú modificado, preservando TODOS los ids originales de secciones e items. ' +
+    'No cambies los ids, solo modifica los campos de texto que correspondan a la instrucción.';
 
   const userPrompt =
-    `Contenido actual del menú:\n${JSON.stringify(content, null, 2)}\n\n` +
-    `Instrucción de edición:\n${instruction}\n\n` +
-    'Devuelve únicamente el JSON del menú modificado, sin explicaciones adicionales.';
+    `Menú actual (formato compacto):\n${JSON.stringify(compactMenu)}\n\n` +
+    `Instrucción: ${instruction}\n\n` +
+    'Devuelve el JSON completo del menú con los cambios aplicados. Preserva todos los ids originales.';
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -84,20 +102,36 @@ async function callOpenAI(
 
 /**
  * Llama a Google Gemini para aplicar la instrucción al menú.
+ * Estrategia optimizada: envía solo un resumen compacto del menú.
  */
 async function callGemini(
   content: MenuContent,
   instruction: string,
   apiKey: string,
 ): Promise<CallResult> {
+  // Construir resumen compacto: solo nombres y precios, sin descripciones largas
+  const compactMenu = {
+    restaurantName: content.restaurantName,
+    sections: content.sections.map(s => ({
+      id: s.id,
+      title: s.title,
+      items: s.items.map(i => ({
+        id: i.id,
+        name: i.name,
+        price: i.price,
+      })),
+    })),
+  };
+
   const prompt =
-    `Contenido actual del menú:\n${JSON.stringify(content, null, 2)}\n\n` +
-    `Instrucción de edición:\n${instruction}\n\n` +
-    'Devuelve únicamente el JSON del menú modificado, sin explicaciones adicionales.';
+    `Menú actual (formato compacto):\n${JSON.stringify(compactMenu)}\n\n` +
+    `Instrucción: ${instruction}\n\n` +
+    'Devuelve el JSON completo del menú con los cambios aplicados. Preserva todos los ids originales.';
 
   const systemInstruction =
     'Eres un asistente experto en menús de restaurante. ' +
-    'Modifica el menú según la instrucción del usuario y devuelve el resultado en el mismo formato JSON.';
+    'Modifica el menú según la instrucción del usuario. ' +
+    'IMPORTANTE: Preserva TODOS los ids originales de secciones e items. No cambies los ids.';
 
   const responseSchema = {
     type: 'object',
@@ -288,10 +322,19 @@ export const handler: Handler = async (event) => {
     };
   }
 
-  // Task 6.1 — Validar que originalPdfBase64 es un PDF válido → 422 INVALID_PDF
+  // Task 6.1 — Validar que originalPdfBase64 comienza con header PDF válido (rápido, sin cargar todo el PDF)
   try {
-    const pdfBytes = Buffer.from(originalPdfBase64, 'base64');
-    await LibPDFDocument.load(pdfBytes, { ignoreEncryption: true });
+    const headerBytes = Buffer.from(originalPdfBase64.substring(0, 20), 'base64');
+    const header = headerBytes.toString('latin1', 0, 5);
+    if (!header.startsWith('%PDF')) {
+      return {
+        statusCode: 422,
+        body: JSON.stringify({
+          error: 'El campo originalPdfBase64 no contiene un PDF válido.',
+          code: 'INVALID_PDF',
+        }),
+      };
+    }
   } catch {
     return {
       statusCode: 422,
