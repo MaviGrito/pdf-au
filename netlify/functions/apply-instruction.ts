@@ -332,6 +332,9 @@ export const handler: Handler = async (event) => {
     // Task 6.2 — Obtener updatedContent de la IA
     let aiResult: CallResult;
 
+    console.log(`[apply-instruction] ▶ Instrucción recibida: "${instruction}" | Modelo: ${model}`);
+    console.log(`[apply-instruction] ▶ Content enviado a la IA (restaurantName: "${content.restaurantName}", secciones: ${content.sections.length}, items: ${content.sections.reduce((acc, s) => acc + s.items.length, 0)})`);
+
     if (model === 'openai') {
       aiResult = await callOpenAI(content, instruction, openaiApiKey!);
     } else {
@@ -340,13 +343,33 @@ export const handler: Handler = async (event) => {
 
     const { updatedContent } = aiResult;
 
+    console.log(`[apply-instruction] ✅ IA respondió (restaurantName: "${updatedContent.restaurantName}", secciones: ${updatedContent.sections.length}, items: ${updatedContent.sections.reduce((acc, s) => acc + s.items.length, 0)})`);
+
+    // Verificar si la IA preservó los IDs originales
+    const originalIds = new Set(content.sections.flatMap(s => s.items.map(i => i.id)));
+    const updatedIds = new Set(updatedContent.sections.flatMap(s => s.items.map(i => i.id)));
+    const preservedIds = [...originalIds].filter(id => updatedIds.has(id));
+    console.log(`[apply-instruction] 🔍 IDs preservados por la IA: ${preservedIds.length}/${originalIds.size} (si es 0, la IA generó IDs nuevos y el diff no funcionará)`);
+
     // Task 6.2 — Calcular diferencias entre el contenido anterior y el nuevo
     const changes = diffMenuContent(content, updatedContent);
+
+    console.log(`[apply-instruction] 🔄 Cambios detectados por DiffEngine: ${changes.length}`);
+    changes.forEach((c, i) => {
+      if (c.oldText === null) console.log(`  [${i}] ADICIÓN: "${c.newText}"`);
+      else if (c.newText === null) console.log(`  [${i}] ELIMINACIÓN: "${c.oldText}"`);
+      else console.log(`  [${i}] CAMBIO: "${c.oldText}" → "${c.newText}"`);
+    });
+
+    if (changes.length === 0) {
+      console.warn('[apply-instruction] ⚠️ DiffEngine no detectó cambios. El PDF no será modificado. Posible causa: la IA cambió los IDs de los items.');
+    }
 
     // Task 6.2 — Aplicar los cambios al PDF original in-place
     let patchedPdfBase64: string;
     try {
       patchedPdfBase64 = await patchPdf(originalPdfBase64, changes);
+      console.log(`[apply-instruction] ✅ PDF patcheado correctamente`);
     } catch (patchError) {
       console.error('[apply-instruction] Patch error:', patchError);
       return {

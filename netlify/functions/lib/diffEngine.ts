@@ -49,7 +49,11 @@ export function diffMenuContent(
 
   // 2. Iterar secciones en `updated`
   for (const updatedSection of updated.sections) {
-    const previousSection = previousSectionsById.get(updatedSection.id);
+    // Buscar sección por id primero; si no, buscar por título como fallback
+    let previousSection = previousSectionsById.get(updatedSection.id);
+    if (!previousSection) {
+      previousSection = previous.sections.find(s => s.title === updatedSection.title);
+    }
 
     // Comparar título de sección
     if (previousSection && previousSection.title !== updatedSection.title) {
@@ -63,7 +67,20 @@ export function diffMenuContent(
     for (const updatedItem of updatedSection.items) {
       updatedItemIds.add(updatedItem.id);
 
-      const previousItem = previousItemsById.get(updatedItem.id);
+      // Buscar el item por id primero; si no se encuentra, buscar por nombre como fallback
+      // (la IA a veces regenera IDs nuevos aunque el item sea el mismo)
+      let previousItem = previousItemsById.get(updatedItem.id);
+      if (!previousItem) {
+        // Fallback: buscar por nombre exacto en la sección correspondiente
+        const prevSection = previousSectionsById.get(updatedSection.id);
+        if (prevSection) {
+          previousItem = prevSection.items.find(i => i.name === updatedItem.name);
+          if (previousItem) {
+            // Registrar el id del item encontrado para evitar detectarlo como eliminado
+            updatedItemIds.add(previousItem.id);
+          }
+        }
+      }
 
       if (!previousItem) {
         // Item nuevo (adición)

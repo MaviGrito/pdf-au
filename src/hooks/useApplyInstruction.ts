@@ -54,6 +54,16 @@ function useApplyInstruction(
           originalPdfBase64: pdf.originalPdfBase64,
         };
 
+        console.log('[useApplyInstruction] ▶ Enviando petición:', {
+          model,
+          instruction,
+          contentRestaurantName: pdf.extractedContent.restaurantName,
+          contentSections: pdf.extractedContent.sections.length,
+          contentItems: pdf.extractedContent.sections.reduce((acc, s) => acc + s.items.length, 0),
+          originalPdfBase64Length: pdf.originalPdfBase64.length,
+          hasOriginalPdf: !!pdf.originalPdfBase64,
+        });
+
         const response = await fetch('/api/apply-instruction', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -61,6 +71,12 @@ function useApplyInstruction(
         });
 
         const data: ApplyInstructionResponse | ErrorResponse = await response.json();
+
+        console.log('[useApplyInstruction] ◀ Respuesta recibida:', {
+          status: response.status,
+          ok: response.ok,
+          hasData: !!data,
+        });
 
         if (!response.ok) {
           const errData = data as ErrorResponse;
