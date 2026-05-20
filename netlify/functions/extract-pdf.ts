@@ -155,12 +155,32 @@ export const handler: Handler = async (event) => {
     const pdfBuffer = Buffer.from(pdfBase64, 'base64');
     const uint8Array = new Uint8Array(pdfBuffer);
 
-    // Extraer texto con unpdf (compatible con entornos serverless/edge)
-    const { text: pages } = await extractText(uint8Array, { mergePages: true });
-    const text = Array.isArray(pages) ? pages.join('\n') : String(pages);
+    // Extraer texto con unpdf — sin mergePages para obtener array de páginas
+    const { text: pages } = await extractText(uint8Array, { mergePages: false });
+
+    // Log para diagnóstico: ver qué devuelve unpdf
+    console.log('[extract-pdf] páginas extraídas:', Array.isArray(pages) ? pages.length : 'no es array');
+    if (Array.isArray(pages) && pages.length > 0) {
+      console.log('[extract-pdf] primera página (primeros 300 chars):', String(pages[0]).substring(0, 300));
+      console.log('[extract-pdf] ¿tiene saltos de línea?', String(pages[0]).includes('\n'));
+    }
+
+    // Unir páginas con doble salto de línea para separar contenido entre páginas
+    const text = Array.isArray(pages)
+      ? pages.map(p => String(p)).join('\n\n')
+      : String(pages);
+
+    console.log('[extract-pdf] texto total (primeros 500 chars):', text.substring(0, 500));
+    console.log('[extract-pdf] líneas totales:', text.split('\n').filter(l => l.trim()).length);
 
     // Construir MenuContent a partir del texto extraído
     const content: MenuContent = parseMenuText(text);
+
+    console.log('[extract-pdf] MenuContent extraído:', {
+      restaurantName: content.restaurantName,
+      sections: content.sections.length,
+      items: content.sections.reduce((acc, s) => acc + s.items.length, 0),
+    });
 
     return {
       statusCode: 200,
