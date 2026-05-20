@@ -70,7 +70,19 @@ function useApplyInstruction(
           body: JSON.stringify(requestBody),
         });
 
-        const data: ApplyInstructionResponse | ErrorResponse = await response.json();
+        // Manejar 504 y otros errores que devuelven HTML en lugar de JSON
+        if (response.status === 504) {
+          setError('La petición tardó demasiado. Intenta con una instrucción más simple o usa Gemini.');
+          return;
+        }
+
+        let data: ApplyInstructionResponse | ErrorResponse;
+        try {
+          data = await response.json();
+        } catch {
+          setError(`Error del servidor (${response.status}). Intenta de nuevo.`);
+          return;
+        }
 
         console.log('[useApplyInstruction] ◀ Respuesta recibida:', {
           status: response.status,
