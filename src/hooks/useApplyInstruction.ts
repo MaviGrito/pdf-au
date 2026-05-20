@@ -1,12 +1,13 @@
 import { useState, useCallback } from 'react';
 import { useAppContext } from '../context/AppContext';
+import { diffMenuContent } from '../utils/diffEngine';
+import { patchPdf } from '../utils/pdfPatcher';
 import type {
   AIModel,
-  ApplyInstructionRequest,
-  ApplyInstructionResponse,
   ErrorResponse,
   HistoryEntry,
   Version,
+  MenuContent,
 } from '../types';
 
 /**
@@ -47,11 +48,11 @@ function useApplyInstruction(
       setError(null);
 
       try {
-        const requestBody: ApplyInstructionRequest = {
+        // 1. Llamar a la IA (solo devuelve updatedContent, sin PDF)
+        const requestBody = {
           content: pdf.extractedContent,
           instruction,
           model,
-          originalPdfBase64: pdf.originalPdfBase64,
         };
 
         console.log('[useApplyInstruction] ▶ Enviando petición:', {
@@ -60,7 +61,6 @@ function useApplyInstruction(
           contentRestaurantName: pdf.extractedContent.restaurantName,
           contentSections: pdf.extractedContent.sections.length,
           contentItems: pdf.extractedContent.sections.reduce((acc, s) => acc + s.items.length, 0),
-          originalPdfBase64Length: pdf.originalPdfBase64.length,
           hasOriginalPdf: !!pdf.originalPdfBase64,
         });
 
@@ -76,7 +76,7 @@ function useApplyInstruction(
           return;
         }
 
-        let data: ApplyInstructionResponse | ErrorResponse;
+        let data: { updatedContent: MenuContent } | ErrorResponse;
         try {
           data = await response.json();
         } catch {
@@ -87,26 +87,39 @@ function useApplyInstruction(
         console.log('[useApplyInstruction] ◀ Respuesta recibida:', {
           status: response.status,
           ok: response.ok,
-          hasData: !!data,
         });
 
         if (!response.ok) {
           const errData = data as ErrorResponse;
           const message = errData.code === 'MISSING_API_KEY'
-            ? `API key no configurada en el servidor. Verifica las variables de entorno en Netlify.`
+            ? 'API key no configurada en el servidor. Verifica las variables de entorno en Netlify.'
             : errData.error ?? 'Error desconocido al aplicar la instrucción.';
           setError(message);
           return;
         }
 
-        const successData = data as ApplyInstructionResponse;
+        const { updatedContent } = data as { updatedContent: MenuContent };
+
+        // 2. Calcular diff en el cliente
+        const changes = diffMenuContent(pdf.extractedContent, updatedContent);
+        console.log(`[useApplyInstruction] 🔄 Cambios detectados: ${changes.length}`);
+        changes.forEach((c, i) => {
+          if (c.oldText === null) console.log(`  [${i}] ADICIÓN: "${c.newText}"`);
+          else if (c.newText === null) console.log(`  [${i}] ELIMINACIÓN: "${c.oldText}"`);
+          else console.log(`  [${i}] CAMBIO: "${c.oldText}" → "${c.newText}"`);
+        });
+
+        // 3. Aplicar patch al PDF en el cliente (browser)
+        console.log('[useApplyInstruction] 🔧 Aplicando patch al PDF en el cliente...');
+        const patchedPdfBase64 = await patchPdf(pdf.originalPdfBase64, changes);
+        console.log('[useApplyInstruction] ✅ PDF patcheado correctamente');
 
         // Construir la nueva versión
         const newVersion: Version = {
           id: crypto.randomUUID(),
           versionNumber: pdf.versions.length + 1,
-          pdfBase64: successData.pdfBase64,
-          content: successData.updatedContent,
+          pdfBase64: patchedPdfBase64,
+          content: updatedContent,
           createdAt: new Date().toISOString(),
         };
 
@@ -117,7 +130,6 @@ function useApplyInstruction(
           model,
           timestamp: new Date().toISOString(),
         };
-
         dispatch({
           type: 'ADD_VERSION',
           payload: {
