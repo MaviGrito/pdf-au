@@ -1,201 +1,23 @@
 import type { Handler } from '@netlify/functions';
-import { PDFDocument as LibPDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument as LibPDFDocument } from 'pdf-lib';
 import type {
   MenuContent,
   AIModel,
   ApplyInstructionResponse,
 } from '../../src/types/index.ts';
+import { diffMenuContent } from './lib/diffEngine.ts';
+import { patchPdf } from './lib/pdfPatcher.ts';
 
 // --------------- Tipos internos ---------------
 
 interface CallResult {
-  pdfBase64: string;
   updatedContent: MenuContent;
-}
-
-// --------------- Generador de PDF con pdf-lib ---------------
-
-/**
- * Divide un texto en líneas que caben dentro de maxWidth usando la fuente y tamaño dados.
- * pdf-lib no hace word-wrap automático, así que lo implementamos manualmente.
- */
-function wrapText(
-  text: string,
-  font: { widthOfTextAtSize: (t: string, s: number) => number },
-  fontSize: number,
-  maxWidth: number,
-): string[] {
-  const words = text.split(' ');
-  const lines: string[] = [];
-  let currentLine = '';
-
-  for (const word of words) {
-    const testLine = currentLine ? `${currentLine} ${word}` : word;
-    const testWidth = font.widthOfTextAtSize(testLine, fontSize);
-    if (testWidth > maxWidth && currentLine) {
-      lines.push(currentLine);
-      currentLine = word;
-    } else {
-      currentLine = testLine;
-    }
-  }
-  if (currentLine) lines.push(currentLine);
-  return lines;
-}
-
-/**
- * Genera un PDF a partir de un MenuContent con word-wrap y layout limpio.
- */
-async function generatePDF(content: MenuContent): Promise<string> {
-  const pdfDoc = await LibPDFDocument.create();
-  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
-
-  const pageWidth = 595;
-  const pageHeight = 842;
-  const margin = 50;
-  const contentWidth = pageWidth - margin * 2;
-  const lineHeightNormal = 15;
-  const lineHeightSmall = 13;
-
-  let page = pdfDoc.addPage([pageWidth, pageHeight]);
-  let y = pageHeight - margin;
-
-  // Añade una nueva página si no hay espacio suficiente
-  const ensureSpace = (needed: number) => {
-    if (y - needed < margin) {
-      page = pdfDoc.addPage([pageWidth, pageHeight]);
-      y = pageHeight - margin;
-    }
-  };
-
-  // Dibuja texto con word-wrap y devuelve el nuevo y
-  const drawWrapped = (
-    text: string,
-    x: number,
-    font: typeof fontBold,
-    fontSize: number,
-    color: ReturnType<typeof rgb>,
-    lineHeight: number,
-    maxWidth: number,
-  ) => {
-    const lines = wrapText(text, font, fontSize, maxWidth);
-    for (const line of lines) {
-      ensureSpace(lineHeight);
-      page.drawText(line, { x, y, size: fontSize, font, color });
-      y -= lineHeight;
-    }
-  };
-
-  // ── Nombre del restaurante ──
-  ensureSpace(30);
-  page.drawText(content.restaurantName, {
-    x: margin,
-    y,
-    size: 20,
-    font: fontBold,
-    color: rgb(0, 0, 0),
-  });
-  y -= 32;
-
-  // ── Secciones ──
-  for (const section of content.sections) {
-    ensureSpace(lineHeightNormal * 2 + 12);
-    y -= 8;
-
-    // Línea separadora
-    page.drawLine({
-      start: { x: margin, y: y + 4 },
-      end: { x: pageWidth - margin, y: y + 4 },
-      thickness: 0.5,
-      color: rgb(0.7, 0.7, 0.7),
-    });
-    y -= 4;
-
-    // Título de sección en mayúsculas
-    page.drawText(section.title.toUpperCase(), {
-      x: margin,
-      y,
-      size: 11,
-      font: fontBold,
-      color: rgb(0.15, 0.15, 0.15),
-    });
-    y -= lineHeightNormal + 6;
-
-    // Platos
-    for (const item of section.items) {
-      ensureSpace(lineHeightNormal + lineHeightSmall + 4);
-
-      // Nombre del plato a la izquierda, precio a la derecha
-      if (item.price) {
-        const priceWidth = fontBold.widthOfTextAtSize(item.price, 11);
-        const nameMaxWidth = contentWidth - priceWidth - 10;
-        const nameLines = wrapText(item.name, fontBold, 11, nameMaxWidth);
-
-        for (let i = 0; i < nameLines.length; i++) {
-          ensureSpace(lineHeightNormal);
-          page.drawText(nameLines[i], {
-            x: margin + 8,
-            y,
-            size: 11,
-            font: fontBold,
-            color: rgb(0, 0, 0),
-          });
-          // Precio solo en la primera línea
-          if (i === 0) {
-            page.drawText(item.price, {
-              x: pageWidth - margin - priceWidth,
-              y,
-              size: 11,
-              font: fontBold,
-              color: rgb(0, 0, 0),
-            });
-          }
-          y -= lineHeightNormal;
-        }
-      } else {
-        drawWrapped(item.name, margin + 8, fontBold, 11, rgb(0, 0, 0), lineHeightNormal, contentWidth - 8);
-      }
-
-      // Descripción con word-wrap
-      if (item.description) {
-        drawWrapped(
-          item.description,
-          margin + 8,
-          fontRegular,
-          9,
-          rgb(0.4, 0.4, 0.4),
-          lineHeightSmall,
-          contentWidth - 8,
-        );
-      }
-      y -= 4; // espacio entre platos
-    }
-  }
-
-  // ── Notas al pie ──
-  if (content.footerNotes && content.footerNotes.length > 0) {
-    y -= 12;
-    page.drawLine({
-      start: { x: margin, y: y + 4 },
-      end: { x: pageWidth - margin, y: y + 4 },
-      thickness: 0.5,
-      color: rgb(0.7, 0.7, 0.7),
-    });
-    y -= 8;
-    for (const note of content.footerNotes) {
-      drawWrapped(`• ${note}`, margin, fontRegular, 9, rgb(0.5, 0.5, 0.5), lineHeightSmall, contentWidth);
-    }
-  }
-
-  const pdfBytes = await pdfDoc.save();
-  return Buffer.from(pdfBytes).toString('base64');
 }
 
 // --------------- Llamada a OpenAI GPT-4o ---------------
 
 /**
- * Llama a OpenAI GPT-4o para aplicar la instrucción al menú y genera el PDF resultante.
+ * Llama a OpenAI GPT-4o para aplicar la instrucción al menú.
  */
 async function callOpenAI(
   content: MenuContent,
@@ -257,13 +79,11 @@ async function callOpenAI(
     throw new Error('La respuesta de OpenAI no tiene el formato MenuContent esperado.');
   }
 
-  const pdfBase64 = await generatePDF(updatedContent);
-
-  return { pdfBase64, updatedContent };
+  return { updatedContent };
 }
 
 /**
- * Llama a Google Gemini para aplicar la instrucción al menú y genera el PDF resultante.
+ * Llama a Google Gemini para aplicar la instrucción al menú.
  */
 async function callGemini(
   content: MenuContent,
@@ -372,9 +192,7 @@ async function callGemini(
     throw new Error('La respuesta de Gemini no tiene el formato MenuContent esperado.');
   }
 
-  const pdfBase64 = await generatePDF(updatedContent);
-
-  return { pdfBase64, updatedContent };
+  return { updatedContent };
 }
 
 // --------------- Handler principal ---------------
@@ -406,6 +224,7 @@ export const handler: Handler = async (event) => {
   let content: MenuContent;
   let instruction: string;
   let model: AIModel;
+  let originalPdfBase64: string;
 
   try {
     const body = JSON.parse(event.body) as Record<string, unknown>;
@@ -440,15 +259,45 @@ export const handler: Handler = async (event) => {
       };
     }
 
+    // Task 6.1 — Validar originalPdfBase64: ausente o vacío → 400 MISSING_ORIGINAL_PDF
+    if (
+      !body.originalPdfBase64 ||
+      typeof body.originalPdfBase64 !== 'string' ||
+      body.originalPdfBase64.trim() === ''
+    ) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          error: 'El campo originalPdfBase64 es obligatorio y no puede estar vacío.',
+          code: 'MISSING_ORIGINAL_PDF',
+        }),
+      };
+    }
+
     content = body.content as MenuContent;
     instruction = body.instruction;
     model = body.model;
+    originalPdfBase64 = body.originalPdfBase64;
   } catch {
     return {
       statusCode: 400,
       body: JSON.stringify({
         error: 'El cuerpo de la petición no es JSON válido.',
         code: 'MISSING_BODY',
+      }),
+    };
+  }
+
+  // Task 6.1 — Validar que originalPdfBase64 es un PDF válido → 422 INVALID_PDF
+  try {
+    const pdfBytes = Buffer.from(originalPdfBase64, 'base64');
+    await LibPDFDocument.load(pdfBytes, { ignoreEncryption: true });
+  } catch {
+    return {
+      statusCode: 422,
+      body: JSON.stringify({
+        error: 'El campo originalPdfBase64 no contiene un PDF válido.',
+        code: 'INVALID_PDF',
       }),
     };
   }
@@ -478,19 +327,40 @@ export const handler: Handler = async (event) => {
     };
   }
 
-  // 6. Enrutar al modelo correspondiente
+  // 6. Enrutar al modelo correspondiente y aplicar patch in-place
   try {
-    let result: CallResult;
+    // Task 6.2 — Obtener updatedContent de la IA
+    let aiResult: CallResult;
 
     if (model === 'openai') {
-      result = await callOpenAI(content, instruction, openaiApiKey!);
+      aiResult = await callOpenAI(content, instruction, openaiApiKey!);
     } else {
-      result = await callGemini(content, instruction, geminiApiKey!);
+      aiResult = await callGemini(content, instruction, geminiApiKey!);
+    }
+
+    const { updatedContent } = aiResult;
+
+    // Task 6.2 — Calcular diferencias entre el contenido anterior y el nuevo
+    const changes = diffMenuContent(content, updatedContent);
+
+    // Task 6.2 — Aplicar los cambios al PDF original in-place
+    let patchedPdfBase64: string;
+    try {
+      patchedPdfBase64 = await patchPdf(originalPdfBase64, changes);
+    } catch (patchError) {
+      console.error('[apply-instruction] Patch error:', patchError);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({
+          error: 'Error al aplicar los cambios al PDF original.',
+          code: 'PATCH_ERROR',
+        }),
+      };
     }
 
     const response: ApplyInstructionResponse = {
-      pdfBase64: result.pdfBase64,
-      updatedContent: result.updatedContent,
+      pdfBase64: patchedPdfBase64,
+      updatedContent,
     };
 
     return {

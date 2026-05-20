@@ -51,6 +51,7 @@ function useApplyInstruction(
           content: pdf.extractedContent,
           instruction,
           model,
+          originalPdfBase64: pdf.originalPdfBase64,
         };
 
         const response = await fetch('/api/apply-instruction', {

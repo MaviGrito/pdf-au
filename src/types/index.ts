@@ -79,6 +79,14 @@ export type AppAction =
   | { type: 'ADD_VERSION'; payload: { pdfId: string; version: Version; historyEntry: HistoryEntry } }
   | { type: 'SET_SEARCH_QUERY'; payload: string };
 
+// --------------- Edición in-place ---------------
+
+/** Par de textos a reemplazar en el PDF */
+export interface TextChange {
+  oldText: string | null; // null = plato nuevo (adición)
+  newText: string | null; // null = plato eliminado
+}
+
 // --------------- Interfaces de Netlify Functions ---------------
 
 /** Request para POST /api/extract-pdf */
@@ -93,9 +101,10 @@ export interface ExtractPDFResponse {
 
 /** Request para POST /api/apply-instruction */
 export interface ApplyInstructionRequest {
-  content: MenuContent;    // Contenido actual del menú
-  instruction: string;     // Instrucción del usuario
+  content: MenuContent;        // Contenido actual del menú
+  instruction: string;         // Instrucción del usuario
   model: AIModel;
+  originalPdfBase64: string;   // PDF original del usuario (para edición in-place)
 }
 
 /** Response de POST /api/apply-instruction (éxito) */
